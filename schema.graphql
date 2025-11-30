@@ -1,0 +1,575 @@
+# ============================================================================
+# EduVerse LMS Subgraph Schema v1.1.0 - PRODUCTION FIXED
+# ============================================================================
+# CRITICAL FIXES:
+# 1. ✅ Added CourseSection entity (resolves Course Detail page blocker)
+# 2. ✅ Added Certificate & CertificateCourse entities (efficient queries)
+# 3. ✅ Optimized @derivedFrom relationships (The Graph best practice)
+# 4. ✅ Added StudentCourseEnrollment for O(1) lookups
+# 5. ✅ Maintained optimized entity structure for fast queries
+# ============================================================================
+
+# ============================================================================
+# ENUMS - Match Solidity Contract Enums
+# ============================================================================
+
+enum CourseCategory {
+  Programming
+  Design
+  Business
+  Marketing
+  DataScience
+  Finance
+  Healthcare
+  Language
+  Arts
+  Mathematics
+  Science
+  Engineering
+  Technology
+  Education
+  Psychology
+  Culinary
+  PersonalDevelopment
+  Legal
+  Sports
+  Other
+}
+
+enum CourseDifficulty {
+  Beginner
+  Intermediate
+  Advanced
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  EXPIRED
+  COMPLETED
+}
+
+# ============================================================================
+# ENTITY 1: COURSE (UPDATED - Added sections relationship)
+# ============================================================================
+
+type Course @entity(immutable: false) {
+  # ===== Core Identity =====
+  id: ID!
+  creator: Bytes!
+  creatorName: String!
+
+  # ===== Course Metadata =====
+  title: String!
+  description: String!
+  thumbnailCID: String!
+  category: CourseCategory!
+  difficulty: CourseDifficulty!
+
+  # ===== Pricing & Access =====
+  price: BigInt!
+  priceInEth: BigDecimal!
+  isActive: Boolean!
+  isDeleted: Boolean!
+
+  # ===== Certificate Pricing =====
+  certificatePrice: BigInt! # Price for adding to certificate
+  certificatePriceEth: BigDecimal! # In ETH for display
+  # ===== Emergency Management =====
+  isEmergencyDeactivated: Boolean! # Emergency takedown flag
+  emergencyDeactivationReason: String # Reason for emergency deactivation
+  ratingsDisabled: Boolean! # Whether ratings are disabled
+  # ===== Content Structure =====
+  sectionsCount: BigInt!
+  totalDuration: BigInt!
+
+  # ===== Rating System =====
+  averageRating: BigDecimal!
+  totalRatings: BigInt!
+  ratingSum: BigInt!
+
+  # ===== Analytics & Metrics =====
+  totalEnrollments: BigInt!
+  activeEnrollments: BigInt!
+  totalRevenue: BigInt!
+  totalRevenueEth: BigDecimal!
+  completedStudents: BigInt!
+  completionRate: BigDecimal!
+
+  # ===== Timestamps =====
+  createdAt: BigInt!
+  updatedAt: BigInt!
+  lastRatingAt: BigInt!
+
+  # ===== Relationships =====
+  sections: [CourseSection!]! @derivedFrom(field: "course") # ✅ CRITICAL FIX
+  enrollments: [Enrollment!]! @derivedFrom(field: "course")
+
+  # ===== Transaction References =====
+  creationTxHash: Bytes!
+  blockNumber: BigInt!
+}
+
+# ============================================================================
+# ENTITY 2: COURSESECTION (NEW - CRITICAL FIX)
+# ============================================================================
+# Resolves: Course Detail page curriculum rendering
+# Best Practice: @derivedFrom prevents large arrays (The Graph docs)
+# Reference: https://thegraph.com/docs/en/subgraphs/best-practices/derivedfrom/
+# ============================================================================
+
+type CourseSection @entity(immutable: false) {
+  id: ID! # courseId-sectionId (e.g., "1-0", "1-1")
+  course: Course! # Relationship to parent course
+  sectionId: BigInt! # Original section ID from smart contract
+  orderId: BigInt! # Sequential order (0, 1, 2... for display)
+  title: String! # Section title
+  contentCID: String! # IPFS/Livepeer content ID
+  duration: BigInt! # Duration in seconds
+  createdAt: BigInt! # Section creation timestamp
+  isDeleted: Boolean! # Soft delete flag (maintains orderId integrity)
+  # ===== Section Analytics =====
+  startedCount: BigInt! # Number of students who started this section
+  completedCount: BigInt! # Number of students who completed this section
+  dropoffRate: BigDecimal! # (started - completed) / started
+  # Transaction references
+  txHash: Bytes!
+  blockNumber: BigInt!
+}
+
+# ============================================================================
+# ENTITY 3: ENROLLMENT (UNCHANGED - Working perfectly)
+# ============================================================================
+
+type Enrollment @entity(immutable: false) {
+  id: ID!
+  student: Bytes!
+  course: Course!
+  courseId: BigInt!
+
+  # License Details
+  durationMonths: BigInt!
+  licenseExpiry: BigInt!
+  isActive: Boolean!
+  status: EnrollmentStatus!
+
+  # Payment & Revenue
+  pricePaid: BigInt!
+  pricePaidEth: BigDecimal!
+  platformFee: BigInt!
+  creatorRevenue: BigInt!
+
+  # Renewal Tracking
+  totalRenewals: BigInt!
+  lastRenewedAt: BigInt!
+  totalSpent: BigInt!
+  totalSpentEth: BigDecimal!
+
+  # Progress & Completion
+  isCompleted: Boolean!
+  completionDate: BigInt!
+  completionPercentage: BigInt!
+  sectionsCompleted: BigInt!
+
+  # Certificate Integration
+  hasCertificate: Boolean!
+  certificateTokenId: BigInt!
+  certificateAddedAt: BigInt!
+  certificatePrice: BigInt!
+
+  # Timestamps
+  purchasedAt: BigInt!
+  lastActivityAt: BigInt!
+
+  # Transaction References
+  mintTxHash: Bytes!
+  lastTxHash: Bytes!
+  blockNumber: BigInt!
+
+  # Relationships
+  userProfile: UserProfile!
+  certificate: Certificate # ✅ NEW: Optional relationship to Certificate
+}
+
+# ============================================================================
+# ENTITY 4: CERTIFICATE (NEW - HIGH PRIORITY FIX)
+# ============================================================================
+# Resolves: Efficient certificate page queries with full course list
+# Use Case: "Show all courses in my certificate" page
+# ============================================================================
+
+type Certificate @entity(immutable: false) {
+  id: ID! # tokenId as string
+  tokenId: BigInt!
+  owner: UserProfile!
+  recipientAddress: Bytes! # Direct address field for queries
+  recipientName: String!
+  isValid: Boolean!
+  totalCourses: BigInt!
+
+  # Certificate Display & Routing
+  platformName: String! # Platform name for certificate display
+  baseRoute: String! # Base URL for QR code routing
+  ipfsCID: String! # Current certificate image IPFS CID
+  customTokenURI: String # Custom token URI set by admin
+  paymentReceiptHash: Bytes # Payment proof hash
+  # Revenue Tracking
+  totalRevenue: BigInt! # Sum of all payments
+  totalRevenueEth: BigDecimal! # In ETH for display
+  # Relationships
+  completedCourses: [CertificateCourse!]! @derivedFrom(field: "certificate")
+
+  # Timestamps
+  createdAt: BigInt!
+  lastUpdated: BigInt!
+
+  # Transaction references
+  mintTxHash: Bytes!
+  blockNumber: BigInt!
+}
+
+# ============================================================================
+# ENTITY 5: CERTIFICATECOURSE (NEW - Junction Table)
+# ============================================================================
+# Many-to-Many relationship: Certificate <-> Course
+# Tracks individual courses added to certificates
+# ============================================================================
+
+type CertificateCourse @entity(immutable: false) {
+  id: ID! # certificateId-courseId
+  certificate: Certificate!
+  course: Course!
+  enrollment: Enrollment! # Link to payment/completion data
+  addedAt: BigInt! # When added to certificate
+  pricePaid: BigInt! # Price paid for this course addition
+  pricePaidEth: BigDecimal!
+  isFirstCourse: Boolean! # First course in certificate (10% fee)
+  # Transaction references
+  txHash: Bytes!
+  blockNumber: BigInt!
+}
+
+# ============================================================================
+# ENTITY: COURSEADDEDTOCERTIFICATEEVENT (NEW - FRONTEND FIX)
+# ============================================================================
+# Resolves: Frontend breaking query for certificate timeline
+# Use Case: Display certificate course addition history
+# ============================================================================
+
+type CourseAddedToCertificateEvent @entity(immutable: true) {
+  id: ID! # {txHash}-{logIndex}
+  tokenId: BigInt! # Certificate token ID
+  certificate: Certificate! # Link to certificate
+  courseId: BigInt! # Course ID that was added
+  course: Course! # Link to course
+  student: Bytes! # Student address
+  userProfile: UserProfile! # Link to user profile
+  pricePaid: BigInt! # Price paid for addition
+  pricePaidEth: BigDecimal! # In ETH for display
+  blockTimestamp: BigInt! # Event timestamp
+  blockNumber: BigInt! # Block number
+  transactionHash: Bytes! # Transaction hash
+}
+
+# ============================================================================
+# ENTITY 6: USERPROFILE (UNCHANGED - Working perfectly)
+# ============================================================================
+
+type UserProfile @entity(immutable: false) {
+  id: ID!
+  address: Bytes!
+
+  # Student Statistics
+  coursesEnrolled: BigInt!
+  coursesCompleted: BigInt!
+  activeEnrollments: BigInt!
+  totalSpentOnCourses: BigInt!
+  totalSpentOnCoursesEth: BigDecimal!
+  totalSpentOnCertificates: BigInt!
+  totalSpentOnCertificatesEth: BigDecimal!
+  totalSpent: BigInt!
+  totalSpentEth: BigDecimal!
+
+  # Moderation
+  isBlacklisted: Boolean! # Whether user is blacklisted
+  blacklistedAt: BigInt # Timestamp of blacklisting
+  blacklistedBy: Bytes # Admin who blacklisted
+  # Instructor Statistics
+  coursesCreated: BigInt!
+  activeCoursesCreated: BigInt!
+  deletedCoursesCreated: BigInt!
+  totalStudents: BigInt!
+  totalRevenue: BigInt!
+  totalRevenueEth: BigDecimal!
+  averageRating: BigDecimal!
+  totalRatingsReceived: BigInt!
+
+  # Relationships
+  teacherStudents: [TeacherStudent!]! @derivedFrom(field: "teacherProfile")
+  studentTeachers: [TeacherStudent!]! @derivedFrom(field: "studentProfile")
+
+  # Certificate Data
+  hasCertificate: Boolean!
+  certificate: Certificate # ✅ NEW: Direct link to Certificate entity
+  certificateTokenId: BigInt!
+  certificateName: String!
+  totalCoursesInCertificate: BigInt!
+  certificateMintedAt: BigInt!
+  certificateLastUpdated: BigInt!
+
+  # Activity Tracking
+  totalSectionsCompleted: BigInt!
+  lastActivityAt: BigInt!
+  firstEnrollmentAt: BigInt!
+  firstCourseCreatedAt: BigInt!
+
+  # Growth Metrics
+  enrollmentsThisMonth: BigInt!
+  completionsThisMonth: BigInt!
+  revenueThisMonth: BigInt!
+  revenueThisMonthEth: BigDecimal!
+
+  # Timestamps
+  createdAt: BigInt!
+  updatedAt: BigInt!
+
+  # Relationships
+  enrollments: [Enrollment!]! @derivedFrom(field: "userProfile")
+
+  # Transaction References
+  firstTxHash: Bytes!
+  lastTxHash: Bytes!
+  blockNumber: BigInt!
+}
+
+# ============================================================================
+# NEW ENTITIES FOR ANALYTICS
+# ============================================================================
+
+# Activity timeline entity for user/course events
+type ActivityEvent @entity(immutable: true) {
+  id: ID! # {txHash}-{logIndex}
+  user: UserProfile! # User who performed action
+  type: String! # "COURSE_CREATED", "ENROLLED", "COMPLETED", etc
+  timestamp: BigInt! # Event timestamp
+  blockNumber: BigInt! # Block number for ordering
+  transactionHash: Bytes! # TX hash for reference
+  # Polymorphic references
+  course: Course # Optional course reference
+  enrollment: Enrollment # Optional enrollment reference
+  certificate: Certificate # Optional certificate reference
+  # Metadata
+  description: String! # Human-readable description
+  metadata: String # Optional JSON metadata
+}
+
+# ============================================================================
+# ENTITY: ADMINCONFIGEVENT - Admin Transaction Tracking
+# ============================================================================
+# Purpose: Track all admin configuration changes for analytics dashboard
+# Use Case: Display admin transactions in analytics page
+# Events: Fee changes, platform name updates, base route changes, etc
+# ============================================================================
+
+type AdminConfigEvent @entity(immutable: true) {
+  id: ID! # {txHash}-{logIndex}
+  admin: Bytes! # Admin wallet address who made the change
+  type: String! # "FEE_UPDATE", "PLATFORM_CONFIG", "CERTIFICATE_CONFIG", etc
+  configKey: String! # Specific config changed: "certificateFee", "platformName", etc
+  oldValue: String # Previous value (if available)
+  newValue: String! # New value set
+  affectedContract: String! # "CertificateManager", "CourseFactory", etc
+  timestamp: BigInt! # Event timestamp
+  blockNumber: BigInt! # Block number
+  transactionHash: Bytes! # Transaction hash
+  description: String! # Human-readable description
+  gasUsed: BigInt # Gas used for transaction
+}
+
+# ============================================================================
+# ENTITY: TEACHERSTUDENT - Unique Student Tracking
+# ============================================================================
+# Purpose: Track unique students per teacher to prevent duplicate counting
+# Composite Key: {teacherAddr}-{studentAddr} for O(1) lookups
+# Use Case: Accurate teacher analytics and revenue tracking
+# Reference: https://thegraph.com/docs/en/developing/creating-a-subgraph/#relationships
+# ============================================================================
+
+type TeacherStudent @entity(immutable: false) {
+  id: ID! # {teacherAddr}-{studentAddr}
+  teacher: Bytes! # Teacher's address
+  teacherProfile: UserProfile! # Link to teacher profile
+  student: Bytes! # Student's address
+  studentProfile: UserProfile! # Link to student profile
+  # Enrollment Data
+  firstEnrollmentDate: BigInt!
+  lastActivityDate: BigInt!
+  totalCoursesBought: BigInt!
+
+  # Revenue Tracking
+  totalSpent: BigInt!
+  totalSpentEth: BigDecimal!
+
+  # Transaction References
+  createdTxHash: Bytes!
+  lastTxHash: Bytes!
+  blockNumber: BigInt!
+}
+
+# Monthly statistics for growth tracking
+type MonthlyUserStats @entity(immutable: false) {
+  id: ID! # {userAddr}-{YYYY-MM}
+  user: UserProfile! # User profile
+  yearMonth: String! # "2025-01" format
+  # Course metrics
+  coursesEnrolled: BigInt!
+  coursesCreated: BigInt!
+  coursesCompleted: BigInt!
+  sectionsCompleted: BigInt!
+
+  # Revenue metrics
+  revenueEarned: BigInt!
+  revenueEarnedEth: BigDecimal!
+  revenueSpent: BigInt!
+  revenueSpentEth: BigDecimal!
+
+  # Student metrics
+  uniqueStudents: BigInt!
+  activeStudents: BigInt!
+  completionRate: BigDecimal!
+
+  # Timestamps
+  firstActivityTimestamp: BigInt!
+  lastActivityTimestamp: BigInt!
+}
+
+# ============================================================================
+# ENTITY 7: STUDENTCOURSEENROLLMENT (NEW - CRITICAL FIX)
+# ============================================================================
+# Resolves: Efficient O(1) lookup for student-course enrollments
+# Best Practice: Use composite keys for direct hash-based queries (300x faster)
+# Use Case: Fast progress tracking and enrollment verification
+# Reference: https://thegraph.com/docs/en/developing/creating-a-subgraph/#debugging
+# ============================================================================
+
+type StudentCourseEnrollment @entity(immutable: false) {
+  id: ID! # {studentAddr}-{courseId}
+  student: Bytes! # Student's address
+  studentProfile: UserProfile! # Link to student profile
+  courseId: BigInt! # Course identifier
+  course: Course! # Link to course entity
+  enrollment: Enrollment! # Link to enrollment details
+  enrollmentId: BigInt! # NFT tokenId for reverse lookup
+  createdAt: BigInt! # Timestamp of enrollment creation
+  # Transaction References
+  txHash: Bytes! # Creation transaction hash
+  blockNumber: BigInt! # Block number for ordering
+}
+
+# Platform-wide statistics
+type PlatformStats @entity(immutable: false) {
+  id: ID! # "platform"
+  totalUsers: BigInt!
+  totalCourses: BigInt!
+  totalEnrollments: BigInt!
+  totalCertificates: BigInt!
+
+  # Revenue metrics
+  totalRevenue: BigInt!
+  totalRevenueEth: BigDecimal!
+  platformFees: BigInt!
+  platformFeesEth: BigDecimal!
+  creatorRevenue: BigInt!
+  creatorRevenueEth: BigDecimal!
+
+  # Averages
+  averageCoursePrice: BigDecimal!
+  averageCompletionRate: BigDecimal!
+  averageRating: BigDecimal!
+
+  # Time series
+  dailyActiveUsers: BigInt!
+  monthlyActiveUsers: BigInt!
+
+  lastUpdateTimestamp: BigInt!
+  lastUpdateBlock: BigInt!
+}
+
+# Network-wide statistics
+type NetworkStats @entity(immutable: false) {
+  id: ID! # "network"
+  totalTransactions: BigInt!
+  lastBlockNumber: BigInt!
+  lastBlockTimestamp: BigInt!
+  averageBlockTime: BigDecimal! # in seconds
+  # Transaction type counts
+  totalCourseCreations: BigInt!
+  totalLicenseMints: BigInt!
+  totalCertificateMints: BigInt!
+  totalProgressUpdates: BigInt!
+
+  # Contract interactions
+  courseFactoryInteractions: BigInt!
+  courseLicenseInteractions: BigInt!
+  progressTrackerInteractions: BigInt!
+  certificateManagerInteractions: BigInt!
+}
+
+# Daily network metrics
+type DailyNetworkStats @entity(immutable: false) {
+  id: ID! # YYYY-MM-DD
+  date: String!
+  transactionCount: BigInt!
+  blockCount: BigInt!
+
+  # Daily breakdown
+  courseTransactions: BigInt!
+  licenseTransactions: BigInt!
+  certificateTransactions: BigInt!
+  progressTransactions: BigInt!
+  adminTransactions: BigInt!
+
+  # Success rates
+  successfulTransactions: BigInt!
+  failedTransactions: BigInt!
+
+  # References
+  startBlock: BigInt!
+  endBlock: BigInt!
+}
+
+# ============================================================================
+# ENTITY: CONTRACTCONFIGSTATE - Current Contract Configuration
+# ============================================================================
+# Purpose: Store current state of contract configurations
+# Use Case: Quick lookup of current values without scanning events
+# Updated: On every admin config change
+# ============================================================================
+
+type ContractConfigState @entity(immutable: false) {
+  id: ID! # Contract address as string
+  contractAddress: Bytes!
+  contractType: String! # "CertificateManager", "CourseLicense", etc
+  contractName: String! # "CertificateManager", "CourseLicense", etc
+  # CertificateManager configs
+  defaultCertificateFee: BigInt
+  defaultCertificateFeeEth: BigDecimal
+  defaultCourseAdditionFee: BigInt
+  defaultCourseAdditionFeeEth: BigDecimal
+  platformWallet: Bytes
+  defaultPlatformName: String
+  defaultBaseRoute: String
+  defaultMetadataBaseURI: String
+
+  # CourseLicense configs
+  platformFeePercentage: BigInt
+  licenseURI: String
+  licenseBaseURI: String
+
+  # Contract state
+  isPaused: Boolean!
+
+  # Timestamps
+  lastUpdated: BigInt!
+  lastUpdateBlock: BigInt!
+  lastUpdateTxHash: Bytes!
+}
